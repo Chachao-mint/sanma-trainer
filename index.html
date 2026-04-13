@@ -118,8 +118,9 @@ table.analysis tr.kan-row{background:rgba(100,150,255,0.08)}
 
 /* Sim mode */
 .sim-game-info{display:flex;gap:6px;justify-content:center;align-items:center;background:rgba(0,0,0,0.2);border-radius:5px;padding:5px 8px;margin-bottom:6px;font-size:0.75em;flex-wrap:wrap}
-.sim-round{color:#ffd700;font-weight:bold}.sim-score{display:inline-flex;gap:3px;align-items:center}.sim-score.self{color:#00cc44}.sim-riichi-mark{color:#ff4444;font-weight:bold;font-size:0.9em}.sim-yakitori{color:#ff8800;font-size:0.65em;margin-left:2px}
+.sim-round{color:#ffd700;font-weight:bold}.sim-score{display:inline-flex;gap:3px;align-items:center}.sim-score.self{color:#00cc44}.sim-riichi-mark{color:#ff4444;font-weight:bold;font-size:0.9em}.sim-yakitori{color:#fff;background:#cc4400;font-size:0.6em;padding:0 3px;border-radius:2px;margin-left:2px;font-weight:bold}
 .sim-opp{background:rgba(0,0,0,0.12);border-radius:5px;padding:5px}.sim-opp-header{display:flex;justify-content:space-between;align-items:center;font-size:0.72em;margin-bottom:2px}
+.river-tile.riichi-tile{transform:rotate(90deg);margin:4px 6px;border:2px solid #ff4444}
 .betaori-btn{font-size:0.8em}.betaori-btn.selected{background:#cc4444;border-color:#ffd700;box-shadow:0 0 6px rgba(255,0,0,0.4)}
 .danger-safe{color:#00cc44}.danger-low{color:#88cc44}.danger-mid{color:#ddaa00}.danger-high{color:#ff6644}.danger-extreme{color:#ff2222}
 .judgment-push{color:#ff4444;font-weight:bold}.judgment-fold{color:#4488ff;font-weight:bold}.judgment-mawashi{color:#ddaa00;font-weight:bold}.judgment-safe{color:#00cc44;font-weight:bold}
@@ -322,7 +323,10 @@ function setDifficulty(d){difficulty=d;document.querySelectorAll('.diff-btn').fo
 function generateNaniHand(){if(difficulty==='hard')return genFiltered(genRawChinitsu,{minChoices:3,maxDiff:3,maxSh:1});if(difficulty==='mid')return genFiltered(genRawTaatsu,{minChoices:3,maxDiff:5,maxSh:1,noTenpai:true});return genFiltered(genRawTaatsu,{minChoices:2,maxDiff:15,maxSh:2,noTenpai:true})}
 function makeDora(){return[INDICATOR_TILES[randInt(0,INDICATOR_TILES.length-1)]]}
 function finishHand(hand){const tp=randInt(0,hand.length-1),tt=hand[tp],rem=[...hand];rem.splice(tp,1);rem.sort(tileSort);rem.push(tt);return{tiles:rem,tsumoIdx:rem.length-1,doraIndicators:makeDora()}}
-function evalHand(h,opts){const{discards}=analyzeAll(h.tiles,[]);const minSh=Math.min(...discards.map(r=>r.shanten));if(minSh>opts.maxSh)return false;if(opts.noTenpai&&minSh===0)return false;const seen={},u=[];for(const r of discards){if(!seen[r.tile]&&r.shanten===minSh){seen[r.tile]=true;u.push(r)}}if(u.length<opts.minChoices)return false;u.sort((a,b)=>b.acceptCount-a.acceptCount);const d=u[0].acceptCount-u[1].acceptCount;if(d<1||d>opts.maxDiff)return false;if(new Set(u.map(r=>r.acceptCount)).size<2)return false;return true}
+function evalHand(h,opts){
+  // Reject tsumo agari (complete hand with 14 tiles)
+  const arr14=handToArr(h.tiles);if(calcShanten(arr14)===-1)return false;
+  const{discards}=analyzeAll(h.tiles,[]);const minSh=Math.min(...discards.map(r=>r.shanten));if(minSh>opts.maxSh)return false;if(opts.noTenpai&&minSh===0)return false;const seen={},u=[];for(const r of discards){if(!seen[r.tile]&&r.shanten===minSh){seen[r.tile]=true;u.push(r)}}if(u.length<opts.minChoices)return false;u.sort((a,b)=>b.acceptCount-a.acceptCount);const d=u[0].acceptCount-u[1].acceptCount;if(d<1||d>opts.maxDiff)return false;if(new Set(u.map(r=>r.acceptCount)).size<2)return false;return true}
 function genFiltered(rawGen,opts){for(let a=0;a<500;a++){const raw=rawGen();if(!raw)continue;const h=finishHand(raw);if(evalHand(h,opts))return h}for(let a=0;a<200;a++){const raw=rawGen();if(raw)return finishHand(raw)}return finishHand(genRawTaatsu()||[])}
 function genRawTaatsu(){const pool=createPool(),blocks=[];for(let i=0;i<randInt(5,6);i++){const r=Math.random();if(r<0.35){const s=shuffle(['p','s'])[0],st=randInt(1,7),t=[`${st}${s}`,`${st+1}${s}`,`${st+2}${s}`];if(canTake(pool,t)){take(pool,t);blocks.push(t);continue}}if(r<0.50){const av=Object.keys(pool).filter(t=>pool[t]>=3);if(av.length){const t=av[randInt(0,av.length-1)];take(pool,[t,t,t]);blocks.push([t,t,t]);continue}}if(r<0.75){const s=shuffle(['p','s'])[0],st=randInt(1,8),t=[`${st}${s}`,`${Math.min(st+1,9)}${s}`];if(t[0]!==t[1]&&canTake(pool,t)){take(pool,t);blocks.push(t);continue}}if(r<0.88){const s=shuffle(['p','s'])[0],st=randInt(1,7),t=[`${st}${s}`,`${st+2}${s}`];if(canTake(pool,t)){take(pool,t);blocks.push(t);continue}}const av=Object.keys(pool).filter(t=>pool[t]>=2);if(av.length){const t=av[randInt(0,av.length-1)];take(pool,[t,t]);blocks.push([t,t]);continue}const sg=Object.keys(pool).filter(t=>pool[t]>0);if(sg.length){const t=sg[randInt(0,sg.length-1)];pool[t]--;blocks.push([t])}}let hand=blocks.flat();while(hand.length<14){const av=Object.keys(pool).filter(t=>pool[t]>0);if(!av.length)break;const t=av[randInt(0,av.length-1)];pool[t]--;hand.push(t)}if(hand.length>14)hand=hand.slice(0,14);return hand.length===14?hand:null}
 function genRawChinitsu(){const pool=createPool(),suit=Math.random()<0.5?'p':'s',blocks=[];for(let i=0;i<randInt(5,7);i++){const r=Math.random();if(r<0.3){const st=randInt(1,7),t=[`${st}${suit}`,`${st+1}${suit}`,`${st+2}${suit}`];if(canTake(pool,t)){take(pool,t);blocks.push(t);continue}}if(r<0.5){const st=randInt(1,8),a=`${st}${suit}`,b=`${Math.min(st+1,9)}${suit}`;if(a!==b&&canTake(pool,[a,b])){take(pool,[a,b]);blocks.push([a,b]);continue}}if(r<0.65){const st=randInt(1,7),a=`${st}${suit}`,b=`${st+2}${suit}`;if(canTake(pool,[a,b])){take(pool,[a,b]);blocks.push([a,b]);continue}}if(r<0.8){const n=randInt(1,9),t=`${n}${suit}`;if(pool[t]>=2){take(pool,[t,t]);blocks.push([t,t]);continue}}const n=randInt(1,9),t=`${n}${suit}`;if(pool[t]>=3){take(pool,[t,t,t]);blocks.push([t,t,t]);continue}const av=[];for(let n2=1;n2<=9;n2++){const t2=`${n2}${suit}`;if(pool[t2]>0)av.push(t2)}if(av.length){const t2=av[randInt(0,av.length-1)];pool[t2]--;blocks.push([t2])}}let hand=blocks.flat();while(hand.length<14){const av=[];for(let n=1;n<=9;n++){const t=`${n}${suit}`;if(pool[t]>0)av.push(t)}if(!av.length)break;const nums=hand.map(t=>parseInt(t[0])),c=nums[randInt(0,nums.length-1)],near=av.filter(t=>Math.abs(parseInt(t[0])-c)<=2),pick=near.length?near[randInt(0,near.length-1)]:av[randInt(0,av.length-1)];pool[pick]--;hand.push(pick)}if(hand.length>14)hand=hand.slice(0,14);return hand.length===14?hand:null}
@@ -335,7 +339,7 @@ function switchMode(mode){currentMode=mode;document.querySelectorAll('.mode-sect
 let pState={hand:null,selected:-1,answered:false,correct:0,total:0};
 function naniNew(){pState.hand=generateNaniHand();pState.selected=-1;pState.answered=false;practiceRender()}
 function practiceRender(){const{tiles,tsumoIdx,doraIndicators}=pState.hand;document.getElementById('practice-dora').innerHTML=renderDoraDisplay(doraIndicators);document.getElementById('nani-hand').innerHTML=renderHand(tiles,{tsumoIdx,clickable:!pState.answered,selectedIdx:pState.selected});document.getElementById('nani-check').disabled=pState.selected<0;document.getElementById('nani-info').innerHTML=pState.answered?'':'牌をクリックして打牌を選択';if(!pState.answered)document.getElementById('nani-result').innerHTML='';document.getElementById('nani-stats').innerHTML=pState.total>0?`正解率: ${pState.correct}/${pState.total} (${Math.round(pState.correct/pState.total*100)}%)`:''}
-function tileClick(el,idx){if(pState.answered)return;pState.selected=idx;practiceRender()}
+function tileClick(el,idx){if(currentMode==='sim'){simTileClick(el,idx);return}if(pState.answered)return;pState.selected=idx;practiceRender()}
 function naniCheck(){if(pState.selected<0)return;pState.answered=true;pState.total++;const{tiles,tsumoIdx,doraIndicators}=pState.hand;const{discards,kans}=analyzeAll(tiles,doraIndicators);const allR=[...discards,...kans],minSh=Math.min(...allR.map(r=>r.shanten)),bestR=allR.filter(r=>r.shanten===minSh),maxA=Math.max(...bestR.map(r=>r.acceptCount)),bestIdx=discards.filter(r=>r.shanten===minSh&&r.acceptCount===maxA).map(r=>r.idx),ur=discards[pState.selected],isOpt=bestIdx.includes(pState.selected),isGood=ur.shanten===minSh;if(isOpt)pState.correct++;let h='';if(isOpt)h+=`<div class="info-box correct">&#x2B55; 最善の打牌です！</div>`;else if(isGood)h+=`<div class="info-box" style="color:#daa520">&#x25B3; 受入がより多い打牌があります</div>`;else h+=`<div class="info-box incorrect">&#x2716; より良い打牌があります（差: ${ur.shanten-minSh}）</div>`;h+=buildTable(discards,kans,pState.selected);document.getElementById('nani-result').innerHTML=h;document.getElementById('nani-info').innerHTML=isOpt?'正解！':'解析結果を確認';const badIdx=discards.filter(r=>r.shanten>minSh).map(r=>r.idx);document.getElementById('nani-hand').innerHTML=renderHand(tiles,{tsumoIdx,selectedIdx:pState.selected,bestIndices:bestIdx,badIndices:badIdx});document.getElementById('nani-check').disabled=true;document.getElementById('nani-stats').innerHTML=`正解率: ${pState.correct}/${pState.total} (${Math.round(pState.correct/pState.total*100)}%)`}
 function naniShowAll(){pState.answered=true;const{tiles,tsumoIdx,doraIndicators}=pState.hand;const{discards,kans}=analyzeAll(tiles,doraIndicators);document.getElementById('nani-result').innerHTML=buildTable(discards,kans,-1);document.getElementById('nani-info').innerHTML='全解析結果';const allR=[...discards,...kans],minSh=Math.min(...allR.map(r=>r.shanten)),bestR=allR.filter(r=>r.shanten===minSh),maxA=Math.max(...bestR.map(r=>r.acceptCount)),bestIdx=discards.filter(r=>r.shanten===minSh&&r.acceptCount===maxA).map(r=>r.idx);document.getElementById('nani-hand').innerHTML=renderHand(tiles,{tsumoIdx,bestIndices:bestIdx});document.getElementById('nani-check').disabled=true}
 
@@ -387,16 +391,23 @@ function generateScene(){
   const round=randInt(0,2),honba=Math.random()<0.5?0:randInt(1,3),kyoutaku=Math.random()<0.3?1000:0;
   const scores=[35000,35000,35000];
   // Randomize scores
-  // Randomize scores around 35000
-  scores[0]+=randInt(-10000,10000);scores[1]+=randInt(-10000,10000);scores[2]=105000-scores[0]-scores[1];
-  for(let i=0;i<3;i++)scores[i]=Math.max(5000,Math.min(55000,Math.round(scores[i]/100)*100));
-  const total=scores.reduce((a,b)=>a+b,0);scores[2]+=105000-total;
+  // Randomize scores: 1000点単位, 総和105000, 最低1000
+  scores[0]+=randInt(-10,10)*1000;scores[1]+=randInt(-10,10)*1000;
+  scores[2]=105000-scores[0]-scores[1];
+  for(let i=0;i<3;i++)scores[i]=Math.max(1000,Math.min(60000,Math.round(scores[i]/1000)*1000));
+  // Enforce sum = 105000
+  const diff=105000-(scores[0]+scores[1]+scores[2]);scores[2]+=diff;
+  if(scores[2]<1000){scores[2]=1000;scores[0]=Math.round((105000-1000-scores[1])/1000)*1000}
   const yakitori=[round<1||Math.random()<0.6,Math.random()<0.5,Math.random()<0.5];
   const doraIndicators=[INDICATOR_TILES[randInt(0,INDICATOR_TILES.length-1)]];
 
-  // Generate player hand
+  // Generate player hand (reject tsumo agari)
   let rawHand=null;
-  for(let a=0;a<100;a++){rawHand=genRawTaatsu();if(rawHand)break}
+  for(let a=0;a<200;a++){
+    const rh=genRawTaatsu();if(!rh)continue;
+    const arr=handToArr(rh);if(calcShanten(arr)===-1)continue;
+    rawHand=rh;break;
+  }
   if(!rawHand)rawHand=ALL_TILES.slice(0,14);
   for(const t of rawHand)pool[t]--;
   const tp=randInt(0,rawHand.length-1),tt=rawHand[tp];
@@ -514,7 +525,7 @@ function simRender(){
   for(let i=0;i<3;i++){
     const cls=i===0?'sim-score self':'sim-score';
     gi+=`<span class="${cls}">${seatNames[i]}:${s.scores[i].toLocaleString()}`;
-    if(s.yakitori[i])gi+=`<span class="sim-yakitori">🐦</span>`;
+    if(s.yakitori[i])gi+=`<span class="sim-yakitori" title="焼き鳥">焼</span>`;
     if(i>0&&s.opponents[i-1].riichi)gi+=`<span class="sim-riichi-mark"> リーチ</span>`;
     gi+=`</span>`;
   }
@@ -524,8 +535,8 @@ function simRender(){
   let oh='';
   for(let i=0;i<2;i++){
     const o=s.opponents[i];
-    oh+=`<div class="sim-opp"><div class="sim-opp-header"><span>他家${i===0?'A':'B'} ${s.scores[i+1].toLocaleString()}点</span>${o.riichi?'<span class="sim-riichi-mark">リーチ</span>':''}${s.yakitori[i+1]?'<span class="sim-yakitori">🐦</span>':''}</div>`;
-    oh+=`<div class="river-tiles">${o.river.map(t=>`<div class="river-tile"><img src="${getTileSrc(t)}" alt="${t}"></div>`).join('')}</div>`;
+    oh+=`<div class="sim-opp"><div class="sim-opp-header"><span>他家${i===0?'A':'B'} ${s.scores[i+1].toLocaleString()}点</span>${o.riichi?'<span class="sim-riichi-mark">リーチ</span>':''}${s.yakitori[i+1]?'<span class="sim-yakitori" title="焼き鳥">焼</span>':''}</div>`;
+    oh+=`<div class="river-tiles">${o.river.map((t,ti)=>`<div class="river-tile${o.riichi&&ti===o.riichiTurn?' riichi-tile':''}"><img src="${getTileSrc(t)}" alt="${t}"></div>`).join('')}</div>`;
     if(o.melds.length)oh+=`<div class="meld-area">${o.melds.map(m=>`<span class="meld-group">${m.tiles.map(t=>`<span class="meld-tile"><img src="${getTileSrc(t)}" alt="${t}"></span>`).join('')}</span>`).join('')}</div>`;
     oh+=`</div>`;
   }
@@ -670,9 +681,7 @@ function buildSimTable(rows,selIdx,bestPlay){
   return h+'</table></div>';
 }
 
-// Override tileClick for sim mode
-const _origTileClick=tileClick;
-function tileClick(el,idx){if(currentMode==='sim'){simTileClick(el,idx);return}_origTileClick(el,idx)}
+// tileClick is already defined above - no override needed
 
 // ========== INIT ==========
 document.addEventListener('DOMContentLoaded',function(){
