@@ -488,6 +488,24 @@ function estimateHandValue(tiles,doraInds){
   return{han,label,points};
 }
 
+// Expected value calculation
+function calcExpectedValue(opt,estPts,danger){
+  // 上がり確率: 向聴数と受入枚数から概算 (0.0~1.0)
+  let agariProb;
+  if(opt.shanten===0)agariProb=Math.min(0.85,0.15+opt.acceptCount*0.05); // 聴牌: 受入1枚=20%, 10枚=65%
+  else if(opt.shanten===1)agariProb=Math.min(0.50,0.03+opt.acceptCount*0.015); // 1向聴
+  else if(opt.shanten===2)agariProb=Math.min(0.25,0.01+opt.acceptCount*0.005);
+  else agariProb=0.01;
+  // 安全度 (0.0~1.0)
+  const safety=(100-danger)/100;
+  // 放銃時の失点概算 (リーチ者の平均打点想定: ~6000点)
+  const dealInLoss=6000;
+  // 期待値 = 上がり確率 × 打点 - 放銃確率 × 失点
+  const dealInProb=danger/100*0.15; // 危険度→実際の放銃率に変換(最大15%)
+  const ev=agariProb*(estPts||2000) - dealInProb*dealInLoss;
+  return{ev:Math.round(ev),agariProb:Math.round(agariProb*100),safety:Math.round(safety*100)};
+}
+
 // Push/fold judgment
 function calcAttackScore(opt,estPts){
   let s=0;if(opt.shanten===0)s+=50;else if(opt.shanten===1)s+=25;else s+=5;
@@ -586,33 +604,21 @@ function simCheck(){
     const est=estimateHandValue(s.hand.filter((_,i)=>i!==d.idx),s.doraIndicators);
     const atk=calcAttackScore(d,est.points);
     const jdg=judgePushFold(dng,atk,sitMod);
-    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points});
+    const evInfo=calcExpectedValue(d,est.points,dng);
+    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety});
   }
   analyzed.sort((a,b)=>a.shanten!==b.shanten?a.shanten-b.shanten:b.acceptCount-a.acceptCount);
 
-  // Find best play
+  // Find best play by EV
   let bestPlay;
-  if(!hasRiichi){
-    // Pure efficiency
-    bestPlay=analyzed[0];
-    bestPlay._reason='リーチ者なし→純粋牌効率';
+  analyzed.sort((a,b)=>b.ev-a.ev);
+  const topEv=analyzed[0];
+  if(hasRiichi&&topEv.ev<-500&&topEv.danger>=40){
+    bestPlay={_isFold:true,_reason:`全選択肢の期待値がマイナス(最高${topEv.ev})→ベタオリ推奨`};
   }else{
-    // Score: attack - danger adjusted
-    const scored=analyzed.map(a=>{
-      const net=a.attackScore*sitMod.am - a.danger*sitMod.rm;
-      return{...a,net};
-    });
-    // Best among same-shanten options, prefer highest net
-    const minSh=Math.min(...scored.map(a=>a.shanten));
-    const atBest=scored.filter(a=>a.shanten===minSh);
-    // If all dangerous and low attack, fold is best
-    const bestNet=Math.max(...atBest.map(a=>a.net));
-    if(bestNet<-20){
-      bestPlay={_isFold:true,_reason:'全ての有効打が高危険→ベタオリ推奨'};
-    }else{
-      bestPlay=atBest.reduce((a,b)=>a.net>b.net?a:b);
-      bestPlay._reason=bestPlay.judgment.j==='押し'?'打点と受入が危険を上回る':bestPlay.judgment.j==='回し'?'安全寄せしつつ手を進める':'守備重視';
-    }
+    bestPlay=topEv;
+    if(!hasRiichi)bestPlay._reason=`期待値${bestPlay.ev>=0?'+':''}${bestPlay.ev.toLocaleString()} (牌効率重視)`;
+    else bestPlay._reason=`期待値${bestPlay.ev>=0?'+':''}${bestPlay.ev.toLocaleString()} (和了率${bestPlay.agariProb}% × 打点 - 放銃リスク)`;
   }
 
   // Check user answer
@@ -651,17 +657,22 @@ function simShowAll(){
     const dng=maxDanger(d.tile,s.opponents,visCounts);
     const est=estimateHandValue(s.hand.filter((_,i)=>i!==d.idx),s.doraIndicators);
     const atk=calcAttackScore(d,est.points);const jdg=judgePushFold(dng,atk,sitMod);
-    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points});}
+    const evInfo=calcExpectedValue(d,est.points,dng);
+    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety});}
   analyzed.sort((a,b)=>a.shanten!==b.shanten?a.shanten-b.shanten:b.acceptCount-a.acceptCount);
   document.getElementById('sim-result').innerHTML=buildSimTable(analyzed,-1,null);
   document.getElementById('sim-check').disabled=true;
 }
 
+function evCls(ev){if(ev>=3000)return'danger-safe';if(ev>=1000)return'danger-low';if(ev>=0)return'danger-mid';if(ev>=-1000)return'danger-high';return'danger-extreme'}
+
 function buildSimTable(rows,selIdx,bestPlay){
   const minSh=rows.length?Math.min(...rows.map(r=>r.shanten)):99;
-  const bestAcc=rows.filter(r=>r.shanten===minSh).reduce((m,r)=>Math.max(m,r.acceptCount),0);
+  // Sort by EV descending (primary), then shanten asc, accept desc
+  rows.sort((a,b)=>{if(a.ev!==b.ev)return b.ev-a.ev;if(a.shanten!==b.shanten)return a.shanten-b.shanten;return b.acceptCount-a.acceptCount});
+  const maxEv=rows.length?rows[0].ev:-9999;
   let h=`<div class="result-area"><h3>実践解析</h3><table class="analysis">
-    <tr><th>打牌</th><th>向聴</th><th>受入</th><th>ドラ</th><th>危険度</th><th>判断</th><th>受入牌</th></tr>`;
+    <tr><th>打牌</th><th>期待値</th><th>和了率</th><th>向聴</th><th>受入</th><th>危険度</th><th>判断</th><th>受入牌</th></tr>`;
   for(const r of rows){
     const isBest=bestPlay&&!bestPlay._isFold&&r.tile===bestPlay.tile;
     const isGood=r.shanten===minSh;
@@ -669,11 +680,12 @@ function buildSimTable(rows,selIdx,bestPlay){
     let cls=isBest?'best':isGood?'good':'';
     h+=`<tr class="${cls}" ${isSel?'style="outline:2px solid #ffd700"':''}>
       <td>${renderTile(r.tile,{mini:true})}</td>
+      <td class="${evCls(r.ev)}" style="font-weight:bold">${r.ev>=0?'+':''}${r.ev.toLocaleString()}</td>
+      <td>${r.agariProb}%</td>
       <td>${r.shanten===0?'聴牌':r.shanten+'向聴'}</td>
       <td>${r.acceptCount}枚</td>
-      <td>${r.dora||0}</td>
       <td class="${dangerCls(r.danger)}">${dangerLabel(r.danger)}(${r.danger})</td>
-      <td><span class="${r.judgment.cls}">${r.judgment.j}</span><span class="sim-reason">${r.judgment.r}</span></td>
+      <td><span class="${r.judgment.cls}">${r.judgment.j}</span></td>
       <td><div class="accept-tiles">${r.acceptTiles.map(a=>`<span class="accept-tile-item">${renderTile(a.tile,{mini:true})}<small>×${a.count}</small></span>`).join('')}</div></td>
     </tr>`;
   }
