@@ -85,7 +85,7 @@ main{background:#2a5a3a;border-radius:0 0 8px 8px;padding:10px;min-height:200px;
 .river-tile{width:22px;height:30px;background:linear-gradient(180deg,#fffef8 0%,#f5eed8 30%,#e8e0c8 100%);border:1px solid #b0a080;border-radius:2px;padding:1px;overflow:hidden;cursor:pointer}
 .river-tile img{width:100%;height:100%;display:block;object-fit:contain}
 .meld-area{background:rgba(0,0,0,0.08);border-radius:4px;padding:4px;margin-top:3px}
-.meld-group{display:inline-flex;gap:1px;margin-right:6px;border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:1px}
+.meld-group{display:inline-flex;align-items:flex-end;gap:1px;margin-right:6px;border:1px solid rgba(255,255,255,0.1);border-radius:3px;padding:1px}
 .meld-tile{width:18px;height:26px;background:linear-gradient(180deg,#fffef8 0%,#f5eed8 30%,#e8e0c8 100%);border:1px solid #b0a080;border-radius:2px;padding:1px;overflow:hidden}
 .meld-tile img{width:100%;height:100%;display:block;object-fit:contain}
 .input-target-btns{display:flex;gap:3px;justify-content:center;margin-bottom:6px;flex-wrap:wrap}
@@ -121,6 +121,11 @@ table.analysis tr.kan-row{background:rgba(100,150,255,0.08)}
 .sim-round{color:#ffd700;font-weight:bold}.sim-score{display:inline-flex;gap:3px;align-items:center}.sim-score.self{color:#00cc44}.sim-riichi-mark{color:#ff4444;font-weight:bold;font-size:0.9em}.sim-yakitori{color:#fff;background:#cc4400;font-size:0.6em;padding:0 3px;border-radius:2px;margin-left:2px;font-weight:bold}
 .sim-opp{background:rgba(0,0,0,0.12);border-radius:5px;padding:5px}.sim-opp-header{display:flex;justify-content:space-between;align-items:center;font-size:0.72em;margin-bottom:2px}
 .river-tile.riichi-tile{transform:rotate(90deg);margin:4px 6px;border:2px solid #ff4444}
+.seat-wind{display:inline-block;font-size:0.7em;color:#cfe0ff;background:rgba(60,110,200,0.35);padding:0 4px;border-radius:3px;margin-left:3px;font-weight:bold}
+.seat-oya{display:inline-block;background:#c8860a;color:#fff;font-size:0.62em;padding:0 4px;border-radius:3px;margin-left:3px;font-weight:bold}
+.seat-chicha{display:inline-block;background:#5a8a5a;color:#fff;font-size:0.62em;padding:0 4px;border-radius:3px;margin-left:3px;font-weight:bold}
+.meld-tile.rotated{transform:rotate(90deg) translateX(3px);margin:0 5px;box-shadow:0 0 0 1px rgba(255,215,0,0.4)}
+.meld-from-label{display:block;font-size:0.6em;color:#daa520;text-align:center;margin-top:1px}
 .betaori-btn{font-size:0.8em}.betaori-btn.selected{background:#cc4444;border-color:#ffd700;box-shadow:0 0 6px rgba(255,0,0,0.4)}
 .danger-safe{color:#00cc44}.danger-low{color:#88cc44}.danger-mid{color:#ddaa00}.danger-high{color:#ff6644}.danger-extreme{color:#ff2222}
 .judgment-push{color:#ff4444;font-weight:bold}.judgment-fold{color:#4488ff;font-weight:bold}.judgment-mawashi{color:#ddaa00;font-weight:bold}.judgment-safe{color:#00cc44;font-weight:bold}
@@ -190,7 +195,8 @@ details.rules-panel summary:hover{color:#ffd700}
   <div class="controls">
     <button class="btn btn-primary" id="nani-check" onclick="naniCheck()" disabled>答え合わせ</button>
     <button class="btn btn-secondary" onclick="naniShowAll()">全解析</button>
-    <button class="btn btn-secondary" onclick="naniNew()">次の問題</button>
+    <button class="btn btn-secondary" id="nani-prev" onclick="naniPrev()" disabled>← 前の問題</button>
+    <button class="btn btn-secondary" onclick="naniNew()">次の問題 →</button>
   </div>
   <div id="nani-result"></div>
   <div class="stats-bar" id="nani-stats"></div>
@@ -339,7 +345,23 @@ function switchMode(mode){currentMode=mode;document.querySelectorAll('.mode-sect
 
 // ========== PRACTICE ==========
 let pState={hand:null,selected:-1,answered:false,correct:0,total:0};
-function naniNew(){pState.hand=generateNaniHand();pState.selected=-1;pState.answered=false;practiceRender()}
+let pHistoryStack=[];
+function naniNew(){
+  if(pState.hand){
+    const snap={hand:JSON.parse(JSON.stringify(pState.hand)),selected:pState.selected,answered:pState.answered,resultHtml:document.getElementById('nani-result')?.innerHTML||''};
+    pHistoryStack.push(snap);if(pHistoryStack.length>30)pHistoryStack.shift();
+  }
+  pState.hand=generateNaniHand();pState.selected=-1;pState.answered=false;practiceRender();
+  const pb=document.getElementById('nani-prev');if(pb)pb.disabled=pHistoryStack.length===0;
+}
+function naniPrev(){
+  if(!pHistoryStack.length)return;
+  const prev=pHistoryStack.pop();
+  pState.hand=prev.hand;pState.selected=prev.selected;pState.answered=prev.answered;
+  practiceRender();
+  if(prev.resultHtml){document.getElementById('nani-result').innerHTML=prev.resultHtml;document.getElementById('nani-check').disabled=true;document.getElementById('nani-info').innerHTML='解析結果を確認';}
+  const pb=document.getElementById('nani-prev');if(pb)pb.disabled=pHistoryStack.length===0;
+}
 function practiceRender(){const{tiles,tsumoIdx,doraIndicators}=pState.hand;document.getElementById('practice-dora').innerHTML=renderDoraDisplay(doraIndicators);document.getElementById('nani-hand').innerHTML=renderHand(tiles,{tsumoIdx,clickable:!pState.answered,selectedIdx:pState.selected});document.getElementById('nani-check').disabled=pState.selected<0;document.getElementById('nani-info').innerHTML=pState.answered?'':'牌をクリックして打牌を選択';if(!pState.answered)document.getElementById('nani-result').innerHTML='';document.getElementById('nani-stats').innerHTML=pState.total>0?`正解率: ${pState.correct}/${pState.total} (${Math.round(pState.correct/pState.total*100)}%)`:''}
 function tileClick(el,idx){if(currentMode==='sim'){simTileClick(el,idx);return}if(pState.answered)return;pState.selected=idx;practiceRender()}
 function naniCheck(){if(pState.selected<0)return;pState.answered=true;pState.total++;const{tiles,tsumoIdx,doraIndicators}=pState.hand;const{discards,kans}=analyzeAll(tiles,doraIndicators);const allR=[...discards,...kans],minSh=Math.min(...allR.map(r=>r.shanten)),bestR=allR.filter(r=>r.shanten===minSh),maxA=Math.max(...bestR.map(r=>r.acceptCount)),bestIdx=discards.filter(r=>r.shanten===minSh&&r.acceptCount===maxA).map(r=>r.idx),ur=discards[pState.selected],isOpt=bestIdx.includes(pState.selected),isGood=ur.shanten===minSh;if(isOpt)pState.correct++;let h='';if(isOpt)h+=`<div class="info-box correct">&#x2B55; 最善の打牌です！</div>`;else if(isGood)h+=`<div class="info-box" style="color:#daa520">&#x25B3; 受入がより多い打牌があります</div>`;else h+=`<div class="info-box incorrect">&#x2716; より良い打牌があります（差: ${ur.shanten-minSh}）</div>`;h+=buildTable(discards,kans,pState.selected);document.getElementById('nani-result').innerHTML=h;document.getElementById('nani-info').innerHTML=isOpt?'正解！':'解析結果を確認';const badIdx=discards.filter(r=>r.shanten>minSh).map(r=>r.idx);document.getElementById('nani-hand').innerHTML=renderHand(tiles,{tsumoIdx,selectedIdx:pState.selected,bestIndices:bestIdx,badIndices:badIdx});document.getElementById('nani-check').disabled=true;document.getElementById('nani-stats').innerHTML=`正解率: ${pState.correct}/${pState.total} (${Math.round(pState.correct/pState.total*100)}%)`}
@@ -385,12 +407,29 @@ function trackerClear(){trk.hand=new Array(14).fill(null);trk.activeSlot=0;trk.r
 function trackerAnalyze(){const f=trk.hand.filter(s=>s!==null).length;if(f<14)return;const ht=trk.hand.slice(0,13).filter(s=>s).sort(tileSort),tt=trk.hand[13],all=[...ht,tt];const di=trk.doraIndicators.filter(d=>d);const vis=getVisibleTiles();const{discards,kans}=analyzeAll(all,di,0,vis);const a14=handToArr(all),sh14=calcShanten(a14);let s=`<div class="info-box">`;if(sh14===-1)s+=`<span class="correct">和了形</span>`;else s+=`<b>${sh14===0?'聴牌':sh14+'向聴'}</b>`;s+=` / ドラ: <b style="color:#ffd700">${countDora(all,di)}</b>`;s+=` / 見えている牌: <b>${vis.length}枚</b>`;const remaining=`<div class="remaining-info">※受入枚数は場の見えている牌(${vis.length}枚)を除外して計算</div>`;s+='</div>'+remaining;document.getElementById('tracker-result').innerHTML=s+buildTable(discards,kans,-1);document.getElementById('tracker-info').innerHTML='解析結果'}
 
 // ========== SIM MODE ==========
-let sim={round:0,honba:0,kyoutaku:0,scores:[35000,35000,35000],yakitori:[true,true,true],doraIndicators:[],opponents:[{river:[],melds:[],riichi:false,riichiTurn:-1},{river:[],melds:[],riichi:false,riichiTurn:-1}],hand:[],tsumoIdx:13,visibleTiles:[],turnNum:10,selected:-1,answered:false,foldSelected:false,correct:0,total:0};
+const WINDS=['東','南','西'];
+const SEAT_NAMES=['自分','他A','他B'];
+// 三麻の打順: 0(自分) → 1(他A) → 2(他B) → 0 (反時計回り)
+// ある親(dealerIdx)に対してプレイヤーiの風: (i-dealerIdx+3)%3 → 0:東 1:南 2:西
+function getSeatWind(i,dealerIdx){return WINDS[(i-dealerIdx+3)%3]}
+// 鳴いた牌の配置: 上家=左, 対面=中央(三麻では発生しない), 下家=右
+// 三麻打順で fromIdx が melderIdx の 下家(=(melder+1)%3) なら右、上家((melder+2)%3)なら左
+function getMeldRotPos(melderIdx,fromIdx){
+  const diff=(fromIdx-melderIdx+3)%3;
+  if(diff===1)return 2; // 下家(次巡者)から鳴いた → 右
+  if(diff===2)return 0; // 上家(前巡者)から鳴いた → 左
+  return 1; // 対面(三麻なし)
+}
+let sim={round:0,honba:0,kyoutaku:0,scores:[35000,35000,35000],yakitori:[true,true,true],doraIndicators:[],chichaIdx:0,dealerIdx:0,opponents:[{river:[],melds:[],riichi:false,riichiTurn:-1},{river:[],melds:[],riichi:false,riichiTurn:-1}],hand:[],tsumoIdx:13,visibleTiles:[],turnNum:10,selected:-1,answered:false,foldSelected:false,correct:0,total:0};
+let simHistoryStack=[];
 
 function generateScene(){
   const pool=createPool();
   // Game context
   const round=randInt(0,2),honba=Math.random()<0.5?0:randInt(1,3),kyoutaku=Math.random()<0.3?1000:0;
+  // 起家(hanchan開始時の親)と現在の親
+  const chichaIdx=randInt(0,2);
+  const dealerIdx=(chichaIdx+round)%3;
   const scores=[35000,35000,35000];
   // Randomize scores
   // Randomize scores: 1000点単位, 総和105000, 最低1000
@@ -433,13 +472,22 @@ function generateScene(){
       const pick=cands[randInt(0,cands.length-1)];pool[pick]--;river.push(pick);
     }
     opponents[oi].river=river;
-    // Riichi?
-    const riichiChance=turnNum>=6?0.35:0.1;
-    if(Math.random()<riichiChance&&river.length>=4){opponents[oi].riichi=true;opponents[oi].riichiTurn=randInt(2,Math.min(river.length-1,8))}
-    // Meld?
+    // Meld (先に決める。鳴いた人はリーチできない)
     if(Math.random()<0.2){
       const meldCands=ALL_TILES.filter(t=>pool[t]>=3);
-      if(meldCands.length){const mt=meldCands[randInt(0,meldCands.length-1)];pool[mt]-=3;opponents[oi].melds=[{tiles:[mt,mt,mt]}]}
+      if(meldCands.length){
+        const mt=meldCands[randInt(0,meldCands.length-1)];pool[mt]-=3;
+        const melderAbs=oi+1;
+        // 鳴いた相手: 自分(0) or もう一人の他家
+        const fromCands=[0,1,2].filter(i=>i!==melderAbs);
+        const fromIdx=fromCands[randInt(0,fromCands.length-1)];
+        opponents[oi].melds=[{tiles:[mt,mt,mt],fromIdx,tile:mt}];
+      }
+    }
+    // Riichi (鳴き無しの時のみ)
+    if(opponents[oi].melds.length===0){
+      const riichiChance=turnNum>=6?0.35:0.1;
+      if(Math.random()<riichiChance&&river.length>=4){opponents[oi].riichi=true;opponents[oi].riichiTurn=randInt(2,Math.min(river.length-1,8))}
     }
   }
 
@@ -447,7 +495,7 @@ function generateScene(){
   const vis=[];
   for(const o of opponents){for(const t of o.river)vis.push(t);for(const m of o.melds)for(const t of m.tiles)vis.push(t)}
 
-  return{round,honba,kyoutaku,scores,yakitori,doraIndicators,opponents,hand,tsumoIdx:hand.length-1,visibleTiles:vis,turnNum,selected:-1,answered:false,foldSelected:false,correct:sim.correct,total:sim.total};
+  return{round,honba,kyoutaku,scores,yakitori,doraIndicators,chichaIdx,dealerIdx,opponents,hand,tsumoIdx:hand.length-1,visibleTiles:vis,turnNum,selected:-1,answered:false,foldSelected:false,correct:sim.correct,total:sim.total};
 }
 
 // Danger analysis
@@ -648,7 +696,47 @@ function dangerCls(d){if(d===0)return'danger-safe';if(d<20)return'danger-low';if
 function dangerLabel(d){if(d===0)return'安全';if(d<20)return'低';if(d<40)return'中';if(d<60)return'高';return'極危'}
 
 // Sim UI
-function simNew(){sim=generateScene();simRender()}
+function simSnapshot(){
+  const snap=JSON.parse(JSON.stringify(sim));
+  snap._resultHtml=document.getElementById('sim-result')?.innerHTML||'';
+  return snap;
+}
+function simNew(){
+  if(sim&&sim.hand&&sim.hand.length){simHistoryStack.push(simSnapshot());if(simHistoryStack.length>30)simHistoryStack.shift()}
+  sim=generateScene();
+  simRender();
+  const r=document.getElementById('sim-result');if(r)r.innerHTML='';
+  const pb=document.getElementById('sim-prev');if(pb)pb.disabled=simHistoryStack.length===0;
+}
+function simPrev(){
+  if(!simHistoryStack.length)return;
+  const prev=simHistoryStack.pop();
+  const resultHtml=prev._resultHtml||'';
+  delete prev._resultHtml;
+  sim=prev;
+  simRender();
+  const r=document.getElementById('sim-result');if(r)r.innerHTML=resultHtml;
+  if(sim.answered){
+    document.getElementById('sim-check').disabled=true;
+    // 手牌に最善マーカー復元
+    try{
+      const visCounts={};for(const t of sim.visibleTiles)visCounts[t]=(visCounts[t]||0)+1;
+      const{discards}=analyzeAll(sim.hand,sim.doraIndicators,0,sim.visibleTiles);
+      const sitMod=calcSitMod(sim.scores,sim.round,sim.yakitori);
+      const analyzed=[];const seenT={};
+      for(const d of discards){if(seenT[d.tile])continue;seenT[d.tile]=true;
+        const dng=maxDanger(d.tile,sim.opponents,visCounts,sim.doraIndicators);
+        const evInfo=calcExpectedValue(d,sim.hand,sim.doraIndicators,dng,sim.opponents,sim.turnNum,sim.visibleTiles.length,sim.honba,sim.round);
+        analyzed.push({...d,danger:dng,ev:evInfo.ev});
+      }
+      analyzed.sort((a,b)=>b.ev-a.ev);
+      const topTile=analyzed[0]?.tile;
+      const bestIdx=discards.filter(d=>d.tile===topTile).map(d=>d.idx);
+      document.getElementById('sim-hand').innerHTML=renderHand(sim.hand,{tsumoIdx:sim.tsumoIdx,selectedIdx:sim.foldSelected?-1:sim.selected,bestIndices:bestIdx});
+    }catch(e){}
+  }
+  const pb=document.getElementById('sim-prev');if(pb)pb.disabled=simHistoryStack.length===0;
+}
 
 function simRender(){
   const s=sim;
@@ -656,10 +744,13 @@ function simRender(){
   const roundNames=['東1局','東2局','東3局'];
   let gi=`<span class="sim-round">${roundNames[s.round]} ${s.honba}本場</span>`;
   if(s.kyoutaku)gi+=`<span>供託${s.kyoutaku}</span>`;
-  const seatNames=['自分','他A','他B'];
   for(let i=0;i<3;i++){
     const cls=i===0?'sim-score self':'sim-score';
-    gi+=`<span class="${cls}">${seatNames[i]}:${s.scores[i].toLocaleString()}`;
+    const wind=getSeatWind(i,s.dealerIdx);
+    gi+=`<span class="${cls}">${SEAT_NAMES[i]}<span class="seat-wind">${wind}家</span>`;
+    if(i===s.dealerIdx)gi+=`<span class="seat-oya">親</span>`;
+    if(i===s.chichaIdx)gi+=`<span class="seat-chicha">起</span>`;
+    gi+=`:${s.scores[i].toLocaleString()}`;
     if(s.yakitori[i])gi+=`<span class="sim-yakitori" title="焼き鳥">焼</span>`;
     if(i>0&&s.opponents[i-1].riichi)gi+=`<span class="sim-riichi-mark"> リーチ</span>`;
     gi+=`</span>`;
@@ -670,9 +761,17 @@ function simRender(){
   let oh='';
   for(let i=0;i<2;i++){
     const o=s.opponents[i];
-    oh+=`<div class="sim-opp"><div class="sim-opp-header"><span>他家${i===0?'A':'B'} ${s.scores[i+1].toLocaleString()}点</span>${o.riichi?'<span class="sim-riichi-mark">リーチ</span>':''}${s.yakitori[i+1]?'<span class="sim-yakitori" title="焼き鳥">焼</span>':''}</div>`;
+    const absIdx=i+1;
+    const wind=getSeatWind(absIdx,s.dealerIdx);
+    const isOya=(absIdx===s.dealerIdx);
+    const isChicha=(absIdx===s.chichaIdx);
+    oh+=`<div class="sim-opp"><div class="sim-opp-header"><span>他家${i===0?'A':'B'}<span class="seat-wind">${wind}家</span>${isOya?'<span class="seat-oya">親</span>':''}${isChicha?'<span class="seat-chicha">起</span>':''} ${s.scores[absIdx].toLocaleString()}点</span>${o.riichi?'<span class="sim-riichi-mark">リーチ</span>':''}${s.yakitori[absIdx]?'<span class="sim-yakitori" title="焼き鳥">焼</span>':''}</div>`;
     oh+=`<div class="river-tiles">${o.river.map((t,ti)=>`<div class="river-tile${o.riichi&&ti===o.riichiTurn?' riichi-tile':''}"><img src="${getTileSrc(t)}" alt="${t}"></div>`).join('')}</div>`;
-    if(o.melds.length)oh+=`<div class="meld-area">${o.melds.map(m=>`<span class="meld-group">${m.tiles.map(t=>`<span class="meld-tile"><img src="${getTileSrc(t)}" alt="${t}"></span>`).join('')}</span>`).join('')}</div>`;
+    if(o.melds.length)oh+=`<div class="meld-area">${o.melds.map(m=>{
+      const rotPos=m.fromIdx!==undefined?getMeldRotPos(absIdx,m.fromIdx):-1;
+      const fromLabel=m.fromIdx!==undefined?SEAT_NAMES[m.fromIdx]:'';
+      return `<span class="meld-group" title="${fromLabel?fromLabel+'から鳴き':''}">${m.tiles.map((t,ti)=>`<span class="meld-tile${ti===rotPos?' rotated':''}"><img src="${getTileSrc(t)}" alt="${t}"></span>`).join('')}</span>${fromLabel?`<span class="meld-from-label">←${fromLabel}</span>`:''}`;
+    }).join('')}</div>`;
     oh+=`</div>`;
   }
   document.getElementById('sim-opponents').innerHTML=oh;
@@ -816,7 +915,7 @@ function buildSimTable(rows,selIdx,bestPlay){
 document.addEventListener('DOMContentLoaded',function(){
   // Inject sim mode HTML
   const ph=document.getElementById('mode-sim-placeholder');
-  if(ph){ph.id='mode-sim';ph.innerHTML='<div class="sim-game-info" id="sim-info-bar"></div><div class="tracker-layout" id="sim-opponents"></div><div id="sim-dora" class="dora-area"></div><div class="hand-area"><div class="hand-row" id="sim-hand"></div></div><div id="sim-hand-info" class="info-box"></div><div class="controls"><button class="btn btn-primary" id="sim-check" onclick="simCheck()" disabled>答え合わせ</button><button class="btn btn-secondary" onclick="simShowAll()">全解析</button><button class="btn btn-danger betaori-btn" id="sim-fold-btn" onclick="simFold()">ベタオリ</button><button class="btn btn-secondary" onclick="simNew()">次の問題</button></div><div id="sim-result"></div>'}
+  if(ph){ph.id='mode-sim';ph.innerHTML='<div class="sim-game-info" id="sim-info-bar"></div><div class="tracker-layout" id="sim-opponents"></div><div id="sim-dora" class="dora-area"></div><div class="hand-area"><div class="hand-row" id="sim-hand"></div></div><div id="sim-hand-info" class="info-box"></div><div class="controls"><button class="btn btn-primary" id="sim-check" onclick="simCheck()" disabled>答え合わせ</button><button class="btn btn-secondary" onclick="simShowAll()">全解析</button><button class="btn btn-danger betaori-btn" id="sim-fold-btn" onclick="simFold()">ベタオリ</button><button class="btn btn-secondary" id="sim-prev" onclick="simPrev()" disabled>← 前の問題</button><button class="btn btn-secondary" onclick="simNew()">次の問題 →</button></div><div id="sim-result"></div>'}
   naniNew();analyzeRender();trackerRender();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 });
