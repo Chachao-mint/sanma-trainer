@@ -297,6 +297,8 @@ function decompose(arr,pos){while(pos<34&&arr[pos]===0)pos++;if(pos>=34)return[0
 function analyzeAll(tiles,di,fm,visibleTiles){
   if(!di)di=[];if(!fm)fm=0;if(!visibleTiles)visibleTiles=[];
   const visCounts={};for(const t of visibleTiles)visCounts[t]=(visCounts[t]||0)+1;
+  // ドラ表示牌は死に牌(裏返らない)ので受入から除外
+  for(const t of di)visCounts[t]=(visCounts[t]||0)+1;
   const discards=[],seen={};
   for(let i=0;i<tiles.length;i++){
     const t=tiles[i];if(seen[t]!==undefined){discards.push({...discards[seen[t]],idx:i});continue}
@@ -383,7 +385,7 @@ function trackerClear(){trk.hand=new Array(14).fill(null);trk.activeSlot=0;trk.r
 function trackerAnalyze(){const f=trk.hand.filter(s=>s!==null).length;if(f<14)return;const ht=trk.hand.slice(0,13).filter(s=>s).sort(tileSort),tt=trk.hand[13],all=[...ht,tt];const di=trk.doraIndicators.filter(d=>d);const vis=getVisibleTiles();const{discards,kans}=analyzeAll(all,di,0,vis);const a14=handToArr(all),sh14=calcShanten(a14);let s=`<div class="info-box">`;if(sh14===-1)s+=`<span class="correct">和了形</span>`;else s+=`<b>${sh14===0?'聴牌':sh14+'向聴'}</b>`;s+=` / ドラ: <b style="color:#ffd700">${countDora(all,di)}</b>`;s+=` / 見えている牌: <b>${vis.length}枚</b>`;const remaining=`<div class="remaining-info">※受入枚数は場の見えている牌(${vis.length}枚)を除外して計算</div>`;s+='</div>'+remaining;document.getElementById('tracker-result').innerHTML=s+buildTable(discards,kans,-1);document.getElementById('tracker-info').innerHTML='解析結果'}
 
 // ========== SIM MODE ==========
-let sim={round:0,honba:0,kyoutaku:0,scores:[35000,35000,35000],yakitori:[true,true,true],doraIndicators:[],opponents:[{river:[],melds:[],riichi:false,riichiTurn:-1},{river:[],melds:[],riichi:false,riichiTurn:-1}],hand:[],tsumoIdx:13,visibleTiles:[],selected:-1,answered:false,foldSelected:false,correct:0,total:0};
+let sim={round:0,honba:0,kyoutaku:0,scores:[35000,35000,35000],yakitori:[true,true,true],doraIndicators:[],opponents:[{river:[],melds:[],riichi:false,riichiTurn:-1},{river:[],melds:[],riichi:false,riichiTurn:-1}],hand:[],tsumoIdx:13,visibleTiles:[],turnNum:10,selected:-1,answered:false,foldSelected:false,correct:0,total:0};
 
 function generateScene(){
   const pool=createPool();
@@ -445,29 +447,47 @@ function generateScene(){
   const vis=[];
   for(const o of opponents){for(const t of o.river)vis.push(t);for(const m of o.melds)for(const t of m.tiles)vis.push(t)}
 
-  return{round,honba,kyoutaku,scores,yakitori,doraIndicators,opponents,hand,tsumoIdx:hand.length-1,visibleTiles:vis,selected:-1,answered:false,foldSelected:false,correct:sim.correct,total:sim.total};
+  return{round,honba,kyoutaku,scores,yakitori,doraIndicators,opponents,hand,tsumoIdx:hand.length-1,visibleTiles:vis,turnNum,selected:-1,answered:false,foldSelected:false,correct:sim.correct,total:sim.total};
 }
 
 // Danger analysis
 function getGenbutsu(opp){if(!opp.riichi)return[];return opp.river.slice(0,opp.riichiTurn+1)}
 function getSujiSafe(genbutsu){const s=new Set();for(const t of genbutsu){const n=parseInt(t[0]),suit=t[1];if(suit==='z'||suit==='m')continue;if(n>=4)s.add((n-3)+suit);if(n<=6)s.add((n+3)+suit)}return s}
 
-function tileDanger(tile,opp,visCounts){
+function tileDanger(tile,opp,visCounts,doraIndicators){
   if(!opp.riichi)return 0;
   const gen=getGenbutsu(opp);if(gen.includes(tile))return 0;
   const suji=getSujiSafe(gen);
   const n=parseInt(tile[0]),s=tile[1];
   let d;
-  if(s==='z'){d=40;if((visCounts[tile]||0)>=2)d=15;if((visCounts[tile]||0)>=3)d=5}
-  else if(s==='m'){d=25}
-  else{if(n>=4&&n<=6)d=70;else if(n===3||n===7)d=55;else if(n===2||n===8)d=40;else d=25}
-  if(suji.has(tile))d=Math.floor(d*0.4);
-  if((visCounts[tile]||0)>=3)d=Math.min(d,10);else if((visCounts[tile]||0)>=2)d=Math.floor(d*0.7);
-  return d;
+  if(s==='z'){d=38;if((visCounts[tile]||0)>=2)d=14;if((visCounts[tile]||0)>=3)d=5}
+  else if(s==='m'){d=24}
+  else{if(n>=4&&n<=6)d=68;else if(n===3||n===7)d=52;else if(n===2||n===8)d=38;else d=22}
+  // 筋安牌
+  if(suji.has(tile))d=Math.floor(d*0.35);
+  // 壁
+  const vc=visCounts[tile]||0;
+  if(vc>=3)d=Math.min(d,8);else if(vc>=2)d=Math.floor(d*0.65);
+  // ドラ・ドラ隣接は警戒度UP
+  if(doraIndicators&&doraIndicators.length){
+    const doraTiles=doraIndicators.map(di=>doraFromIndicator(di));
+    if(doraTiles.includes(tile))d+=10;
+    if(s==='p'||s==='s'){
+      for(const dt of doraTiles){
+        if(dt[1]===s){
+          const diff=Math.abs(parseInt(dt[0])-n);
+          if(diff===1)d+=4;else if(diff===2)d+=2;
+        }
+      }
+    }
+  }
+  // 遅リーチ(8巡目以降)の中張牌は更に危険
+  if(opp.riichiTurn>=8&&s!=='z'&&n>=3&&n<=7)d+=5;
+  return Math.min(100,Math.max(0,d));
 }
 
-function maxDanger(tile,opponents,visCounts){
-  return Math.max(...opponents.map(o=>tileDanger(tile,o,visCounts)),0);
+function maxDanger(tile,opponents,visCounts,doraIndicators){
+  return Math.max(...opponents.map(o=>tileDanger(tile,o,visCounts,doraIndicators)),0);
 }
 
 // Hand value estimation
@@ -488,22 +508,119 @@ function estimateHandValue(tiles,doraInds){
   return{han,label,points};
 }
 
-// Expected value calculation
-function calcExpectedValue(opt,estPts,danger){
-  // 上がり確率: 向聴数と受入枚数から概算 (0.0~1.0)
-  let agariProb;
-  if(opt.shanten===0)agariProb=Math.min(0.85,0.15+opt.acceptCount*0.05); // 聴牌: 受入1枚=20%, 10枚=65%
-  else if(opt.shanten===1)agariProb=Math.min(0.50,0.03+opt.acceptCount*0.015); // 1向聴
-  else if(opt.shanten===2)agariProb=Math.min(0.25,0.01+opt.acceptCount*0.005);
-  else agariProb=0.01;
-  // 安全度 (0.0~1.0)
-  const safety=(100-danger)/100;
-  // 放銃時の失点概算 (リーチ者の平均打点想定: ~6000点)
-  const dealInLoss=6000;
-  // 期待値 = 上がり確率 × 打点 - 放銃確率 × 失点
-  const dealInProb=danger/100*0.15; // 危険度→実際の放銃率に変換(最大15%)
-  const ev=agariProb*(estPts||2000) - dealInProb*dealInLoss;
-  return{ev:Math.round(ev),agariProb:Math.round(agariProb*100),safety:Math.round(safety*100)};
+// ===== 再定義された期待値エンジン =====
+// 三麻全牌108枚, 死に山14枚, 配牌13×3=39, 生牌山55枚
+const TOTAL_TILES=108;
+function playerRemainingDraws(turnNum){return Math.max(1,18-turnNum)}
+function unseenTiles(visibleCount,doraIndCount){return Math.max(1,TOTAL_TILES-14-visibleCount-doraIndCount)}
+
+// 巡目勘案の和了確率 (向聴数と受入枚数と残巡から算出)
+function calcWinProbability(opt,turnNum,visibleCount,doraIndCount){
+  const unseen=unseenTiles(visibleCount,doraIndCount);
+  const draws=playerRemainingDraws(turnNum);
+  if(opt.shanten===0){
+    const p=opt.acceptCount/unseen;
+    return 1-Math.pow(1-p,draws);
+  }
+  if(opt.shanten===1){
+    // 1向聴: 聴牌に進む→聴牌から和了の2段階
+    const pAdv=opt.acceptCount/unseen;
+    const pWinAtTenpai=8/unseen; // 聴牌後の平均受入を8枚と仮定
+    let total=0;
+    for(let k=1;k<=draws-1;k++){
+      const pAdvAtK=Math.pow(1-pAdv,k-1)*pAdv;
+      const drawsLeft=draws-k;
+      const pWin=1-Math.pow(1-pWinAtTenpai,drawsLeft);
+      total+=pAdvAtK*pWin;
+    }
+    return Math.min(0.9,total);
+  }
+  if(opt.shanten===2){
+    // 2向聴: 3段階 40%/30%/30%で配分
+    const pAdv=opt.acceptCount/unseen;
+    const t1=Math.max(1,Math.floor(draws*0.4));
+    const t2=Math.max(1,Math.floor(draws*0.3));
+    const t3=Math.max(1,draws-t1-t2);
+    const p1=1-Math.pow(1-pAdv,t1);
+    const p2=1-Math.pow(1-15/unseen,t2);
+    const p3=1-Math.pow(1-8/unseen,t3);
+    return p1*p2*p3;
+  }
+  // 3向聴以上
+  return Math.max(0.005,0.05-opt.shanten*0.01);
+}
+
+// 全向聴数対応の打点推定 (ポテンシャル型)
+function estimatePotentialValue(tiles,doraInds,shanten){
+  const currentDora=countDora(tiles,doraInds);
+  let han=2; // リーチ1 + ツモ想定1
+  han+=currentDora;
+  const suits=new Set(tiles.map(t=>t[1]));
+  const numSuits=new Set([...suits].filter(s=>s!=='z'&&s!=='m'));
+  // マンズ混一色 役満
+  const hasOnlyManHonor=tiles.every(t=>t[1]==='m'||t[1]==='z');
+  if(hasOnlyManHonor&&tiles.length>=12)return{han:13,label:'役満(萬混)',points:32000};
+  // 清一色 / 混一色
+  if(numSuits.size===1&&!suits.has('z')&&!suits.has('m'))han+=6;
+  else if(numSuits.size===1&&(suits.has('z')||suits.has('m')))han+=3;
+  // タンヤオ
+  const allSimple=tiles.every(t=>{const n=parseInt(t[0]),s=t[1];return(s==='p'||s==='s')&&n>=2&&n<=8});
+  if(allSimple)han+=1;
+  // 役牌
+  const counts={};for(const t of tiles)counts[t]=(counts[t]||0)+1;
+  for(const t of['5z','6z','7z']){
+    if((counts[t]||0)>=3)han+=1;
+    else if((counts[t]||0)>=2)han+=0.5;
+  }
+  // 向聴数が深いほど役の確定度を下げる
+  if(shanten>=2)han=Math.max(2,han-0.5);
+  let points,label;
+  if(han>=13){points=32000;label='役満'}
+  else if(han>=11){points=24000;label='三倍満'}
+  else if(han>=8){points=16000;label='倍満'}
+  else if(han>=6){points=12000;label='跳満'}
+  else if(han>=5){points=8000;label='満貫'}
+  else{points=Math.min(8000,Math.round(1000*Math.pow(2,Math.max(1,han)-1)));label=(Math.round(han*10)/10)+'翻'}
+  return{han:Math.round(han*10)/10,label,points};
+}
+
+// 他家リーチの推定打点 (動的な放銃失点)
+function estimateOpponentRiichi(opp,doraInds,honba,round){
+  let han=2; // リーチ+ツモ想定
+  han+=doraInds.length*0.7; // ドラ想定
+  if(opp.riichiTurn<=5)han+=0.5; // 早リーチは手役あり想定
+  if(round>=2)han+=0.3; // 終盤は打点傾向
+  let base;
+  if(han>=8)base=16000;
+  else if(han>=6)base=12000;
+  else if(han>=5)base=8000;
+  else base=Math.min(8000,1000*Math.pow(2,Math.max(1,han)-1));
+  base+=honba*900; // 本場: 300*3
+  return Math.round(base);
+}
+
+// 再定義された期待値エンジン
+function calcExpectedValue(opt,allTiles,doraIndicators,danger,opponents,turnNum,visibleCount,honba,round){
+  const remainingHand=allTiles.filter((_,i)=>i!==opt.idx);
+  const pWin=calcWinProbability(opt,turnNum,visibleCount,doraIndicators.length);
+  const estValue=estimatePotentialValue(remainingHand,doraIndicators,opt.shanten);
+  // 動的な放銃失点
+  let dealInLoss=0;
+  const riichiOpps=opponents.filter(o=>o.riichi);
+  if(riichiOpps.length>0){
+    dealInLoss=Math.max(...riichiOpps.map(o=>estimateOpponentRiichi(o,doraIndicators,honba,round)));
+  }
+  // 危険度→放銃確率 (最大14%)
+  const pDealIn=danger/100*0.14;
+  const ev=pWin*estValue.points - pDealIn*dealInLoss;
+  return{
+    ev:Math.round(ev),
+    agariProb:Math.round(pWin*1000)/10,
+    safety:Math.round(100-danger),
+    estPoints:estValue.points,
+    estLabel:estValue.label,
+    dealInLoss:Math.round(dealInLoss)
+  };
 }
 
 // Push/fold judgment
@@ -570,10 +687,11 @@ function simRender(){
   const handFor13=s.hand.slice(0,13);
   const arr13=handToArr(handFor13);const sh13=calcShanten(arr13);
   const arr14=handToArr(s.hand);const sh14=calcShanten(arr14);
-  const est=estimateHandValue(s.hand,s.doraIndicators);
+  const estPot=estimatePotentialValue(s.hand,s.doraIndicators,Math.max(0,sh14));
   const hasRiichi=s.opponents.some(o=>o.riichi);
   let hi=`${sh14===0?'<b style="color:#ffd700">聴牌</b>':sh14+'向聴'}`;
-  hi+=` / 打点目安: <b style="color:#ffd700">${est.points?'~'+est.points.toLocaleString()+'点('+est.label+')':'−'}</b>`;
+  hi+=` / 打点目安: <b style="color:#ffd700">~${estPot.points.toLocaleString()}点(${estPot.label})</b>`;
+  hi+=` / 巡目: <b>${s.turnNum}</b>`;
   if(hasRiichi)hi+=` / <span class="sim-riichi-mark">⚠ リーチ者あり</span>`;
   document.getElementById('sim-hand-info').innerHTML=hi;
 
@@ -600,12 +718,11 @@ function simCheck(){
   const analyzed=[];const seenT={};
   for(const d of discards){
     if(seenT[d.tile])continue;seenT[d.tile]=true;
-    const dng=maxDanger(d.tile,s.opponents,visCounts);
-    const est=estimateHandValue(s.hand.filter((_,i)=>i!==d.idx),s.doraIndicators);
-    const atk=calcAttackScore(d,est.points);
+    const dng=maxDanger(d.tile,s.opponents,visCounts,s.doraIndicators);
+    const evInfo=calcExpectedValue(d,s.hand,s.doraIndicators,dng,s.opponents,s.turnNum,s.visibleTiles.length,s.honba,s.round);
+    const atk=calcAttackScore(d,evInfo.estPoints);
     const jdg=judgePushFold(dng,atk,sitMod);
-    const evInfo=calcExpectedValue(d,est.points,dng);
-    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety});
+    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:evInfo.estPoints,estLabel:evInfo.estLabel,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety,dealInLoss:evInfo.dealInLoss});
   }
   analyzed.sort((a,b)=>a.shanten!==b.shanten?a.shanten-b.shanten:b.acceptCount-a.acceptCount);
 
@@ -654,11 +771,10 @@ function simShowAll(){
   const sitMod=calcSitMod(s.scores,s.round,s.yakitori);
   const analyzed=[];const seenT={};
   for(const d of discards){if(seenT[d.tile])continue;seenT[d.tile]=true;
-    const dng=maxDanger(d.tile,s.opponents,visCounts);
-    const est=estimateHandValue(s.hand.filter((_,i)=>i!==d.idx),s.doraIndicators);
-    const atk=calcAttackScore(d,est.points);const jdg=judgePushFold(dng,atk,sitMod);
-    const evInfo=calcExpectedValue(d,est.points,dng);
-    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:est.points,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety});}
+    const dng=maxDanger(d.tile,s.opponents,visCounts,s.doraIndicators);
+    const evInfo=calcExpectedValue(d,s.hand,s.doraIndicators,dng,s.opponents,s.turnNum,s.visibleTiles.length,s.honba,s.round);
+    const atk=calcAttackScore(d,evInfo.estPoints);const jdg=judgePushFold(dng,atk,sitMod);
+    analyzed.push({...d,danger:dng,attackScore:atk,judgment:jdg,estPoints:evInfo.estPoints,estLabel:evInfo.estLabel,ev:evInfo.ev,agariProb:evInfo.agariProb,safety:evInfo.safety,dealInLoss:evInfo.dealInLoss});}
   analyzed.sort((a,b)=>a.shanten!==b.shanten?a.shanten-b.shanten:b.acceptCount-a.acceptCount);
   document.getElementById('sim-result').innerHTML=buildSimTable(analyzed,-1,null);
   document.getElementById('sim-check').disabled=true;
@@ -672,7 +788,7 @@ function buildSimTable(rows,selIdx,bestPlay){
   rows.sort((a,b)=>{if(a.ev!==b.ev)return b.ev-a.ev;if(a.shanten!==b.shanten)return a.shanten-b.shanten;return b.acceptCount-a.acceptCount});
   const maxEv=rows.length?rows[0].ev:-9999;
   let h=`<div class="result-area"><h3>実践解析</h3><table class="analysis">
-    <tr><th>打牌</th><th>期待値</th><th>和了率</th><th>向聴</th><th>受入</th><th>危険度</th><th>判断</th><th>受入牌</th></tr>`;
+    <tr><th>打牌</th><th>期待値</th><th>和了率</th><th>打点</th><th>向聴</th><th>受入</th><th>危険度</th><th>判断</th><th>受入牌</th></tr>`;
   for(const r of rows){
     const isBest=bestPlay&&!bestPlay._isFold&&r.tile===bestPlay.tile;
     const isGood=r.shanten===minSh;
@@ -682,6 +798,7 @@ function buildSimTable(rows,selIdx,bestPlay){
       <td>${renderTile(r.tile,{mini:true})}</td>
       <td class="${evCls(r.ev)}" style="font-weight:bold">${r.ev>=0?'+':''}${r.ev.toLocaleString()}</td>
       <td>${r.agariProb}%</td>
+      <td>${r.estPoints.toLocaleString()}</td>
       <td>${r.shanten===0?'聴牌':r.shanten+'向聴'}</td>
       <td>${r.acceptCount}枚</td>
       <td class="${dangerCls(r.danger)}">${dangerLabel(r.danger)}(${r.danger})</td>
@@ -689,7 +806,7 @@ function buildSimTable(rows,selIdx,bestPlay){
       <td><div class="accept-tiles">${r.acceptTiles.map(a=>`<span class="accept-tile-item">${renderTile(a.tile,{mini:true})}<small>×${a.count}</small></span>`).join('')}</div></td>
     </tr>`;
   }
-  if(bestPlay&&bestPlay._isFold)h+=`<tr class="best"><td colspan="7" style="text-align:center;color:#4488ff">→ ベタオリ推奨: ${bestPlay._reason}</td></tr>`;
+  if(bestPlay&&bestPlay._isFold)h+=`<tr class="best"><td colspan="9" style="text-align:center;color:#4488ff">→ ベタオリ推奨: ${bestPlay._reason}</td></tr>`;
   return h+'</table></div>';
 }
 
